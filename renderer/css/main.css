@@ -101,6 +101,61 @@
   --sidebar-w: 260px;
   --header-h: 64px;
   --detail-w: 420px;
+
+  /* Tints & misc (si invertono nel tema chiaro) */
+  --tint-0: rgba(255, 255, 255, 0.02);
+  --tint-1: rgba(255, 255, 255, 0.05);
+  --tint-2: rgba(255, 255, 255, 0.08);
+  --scrollbar: rgba(255, 255, 255, 0.07);
+  --scrollbar-hover: rgba(255, 255, 255, 0.14);
+  --ring-track: rgba(255, 255, 255, 0.06);
+  --titlebar-bg: rgba(15, 17, 23, 0.6);
+}
+
+/* ===== Tema chiaro ===== */
+body.theme-light {
+  --bg-base: #f5f6f8;
+  --bg-surface: #ffffff;
+  --bg-elevated: #ffffff;
+  --bg-hover: #eef0f4;
+  --bg-active: #e4e7ee;
+  --bg-overlay: rgba(20, 22, 30, 0.38);
+
+  --border-subtle: rgba(17, 24, 39, 0.07);
+  --border: rgba(17, 24, 39, 0.11);
+  --border-strong: rgba(17, 24, 39, 0.17);
+  --border-focus: rgba(99, 102, 241, 0.55);
+
+  --text-1: #1a1d24;
+  --text-2: #565b67;
+  --text-3: #8b909c;
+  --text-disabled: #b3b7c0;
+
+  --accent: #5457e8;
+  --accent-hover: #4447d6;
+  --accent-pressed: #3a3dbf;
+  --accent-soft: rgba(99, 102, 241, 0.12);
+  --accent-glow: rgba(99, 102, 241, 0.25);
+
+  --tint-0: rgba(17, 24, 39, 0.025);
+  --tint-1: rgba(17, 24, 39, 0.05);
+  --tint-2: rgba(17, 24, 39, 0.08);
+  --scrollbar: rgba(17, 24, 39, 0.18);
+  --scrollbar-hover: rgba(17, 24, 39, 0.3);
+  --ring-track: rgba(17, 24, 39, 0.1);
+  --titlebar-bg: rgba(255, 255, 255, 0.7);
+
+  --sh-1: 0 1px 2px rgba(17, 24, 39, 0.08), 0 0 0 1px rgba(17, 24, 39, 0.03);
+  --sh-2: 0 4px 12px rgba(17, 24, 39, 0.1), 0 1px 2px rgba(17, 24, 39, 0.06);
+  --sh-3: 0 12px 32px rgba(17, 24, 39, 0.14), 0 2px 6px rgba(17, 24, 39, 0.08);
+  --sh-4: 0 24px 64px rgba(17, 24, 39, 0.18), 0 4px 12px rgba(17, 24, 39, 0.1);
+}
+
+/* Sfondo decorativo attenuato nel tema chiaro */
+body.theme-light::before {
+  background:
+    radial-gradient(1200px 600px at 12% -10%, rgba(99, 102, 241, 0.06), transparent 60%),
+    radial-gradient(1000px 500px at 90% 0%, rgba(139, 92, 246, 0.05), transparent 60%);
 }
 
 /* Reset */
@@ -172,13 +227,13 @@ p { color: var(--text-2); }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--scrollbar);
   border-radius: var(--r-pill);
   border: 2px solid transparent;
   background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: var(--scrollbar-hover);
   background-clip: content-box;
 }
 
@@ -200,7 +255,7 @@ p { color: var(--text-2); }
   align-items: center;
   justify-content: space-between;
   padding: 0 var(--sp-4);
-  background: rgba(10, 11, 15, 0.72);
+  background: var(--titlebar-bg);
   backdrop-filter: blur(18px) saturate(160%);
   -webkit-backdrop-filter: blur(18px) saturate(160%);
   border-bottom: 1px solid var(--border-subtle);
@@ -537,7 +592,7 @@ p { color: var(--text-2); }
   font-size: var(--fs-xs);
   color: var(--text-3);
   font-weight: 500;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--tint-1);
   padding: 1px 6px;
   border-radius: var(--r-pill);
   min-width: 22px;
@@ -580,7 +635,7 @@ p { color: var(--text-2); }
   cursor: pointer;
 }
 .cat-edit svg { width: 13px; height: 13px; color: currentColor; }
-.cat-edit:hover { background: rgba(255, 255, 255, 0.08); color: var(--text-1); }
+.cat-edit:hover { background: var(--tint-2); color: var(--text-1); }
 .cat-item:hover .cat-edit { display: inline-flex; }
 .cat-item:hover .count { display: none; }
 .nav-empty {
@@ -710,7 +765,7 @@ p { color: var(--text-2); }
   letter-spacing: 0.08em;
   color: var(--text-3);
   border-bottom: 1px solid var(--border-subtle);
-  background: rgba(255, 255, 255, 0.01);
+  background: var(--tint-0);
 }
 .setting-row {
   display: flex;
@@ -721,7 +776,7 @@ p { color: var(--text-2); }
   transition: background var(--dur-fast) var(--ease);
 }
 .setting-row:last-child { border-bottom: none; }
-.setting-row:hover { background: rgba(255, 255, 255, 0.015); }
+.setting-row:hover { background: var(--tint-0); }
 .setting-row .meta {
   flex: 1;
   display: flex;

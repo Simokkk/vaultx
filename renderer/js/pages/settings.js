@@ -47,6 +47,15 @@
           </div>
 
           <div class="section-card">
+            <div class="section-title">Aspetto</div>
+            ${row('Tema', 'Scegli tra aspetto scuro e chiaro',
+              `<select class="select" id="theme" style="width:150px">
+                <option value="dark">Scuro</option>
+                <option value="light">Chiaro</option>
+              </select>`)}
+          </div>
+
+          <div class="section-card">
             <div class="section-title">Sistema</div>
             ${row('Avvia con Windows', 'Avvia VaultX automaticamente al login',
               toggleHtml('autoStart', s.autoStart === '1'))}
@@ -98,6 +107,14 @@
 
     container.querySelector('#autoLockMinutes').value = s.autoLockMinutes || '5';
     container.querySelector('#clipboardClearSec').value = s.clipboardClearSec || '30';
+    container.querySelector('#theme').value = s.theme || 'dark';
+
+    // Tema: salva e applica subito
+    container.querySelector('#theme').onchange = async (e) => {
+      await window.API.settings.set('theme', e.target.value);
+      if (window.applyTheme) window.applyTheme(e.target.value);
+      window.Toast.success('Tema aggiornato');
+    };
 
     container.querySelector('#back').onclick = () => window.Router.route('vault');
 

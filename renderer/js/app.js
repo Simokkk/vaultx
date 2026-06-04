@@ -45,8 +45,20 @@
     App.currentPage = await page.mount(container, { navigate: route, params });
   }
 
+  function applyTheme(theme) {
+    const light = theme === 'light';
+    document.body.classList.toggle('theme-light', light);
+    document.body.classList.toggle('theme-dark', !light);
+  }
+
   async function boot() {
     App.rootEl = document.getElementById('app');
+
+    // Applica il tema salvato il prima possibile (evita flash)
+    try {
+      const theme = await window.API.settings.get('theme');
+      applyTheme(theme);
+    } catch (_e) { /* default dark */ }
 
     // Titlebar bindings
     document.getElementById('tbMin').onclick = () => window.API.window.minimize();
@@ -90,5 +102,6 @@
   }
 
   window.Router = { route };
+  window.applyTheme = applyTheme;
   document.addEventListener('DOMContentLoaded', boot);
 })();
