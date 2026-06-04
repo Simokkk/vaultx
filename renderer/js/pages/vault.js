@@ -21,7 +21,9 @@
     external: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>',
     zap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
     restore: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>',
-    activity: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>'
+    activity: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
+    note: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="14" y2="17"/></svg>',
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
   };
 
   let pageState = {
@@ -30,6 +32,8 @@
     categories: [],
     trashCount: 0,
     selectedId: null,
+    selectMode: false,
+    selected: new Set(),
     totpTimer: null,
     autotypeHandler: null
   };
@@ -102,6 +106,7 @@
 
     sb.querySelectorAll('[data-f]').forEach((el) => {
       el.onclick = () => {
+        exitSelectMode();
         const f = el.dataset.f;
         pageState.filter.categoryId = null;
         pageState.filter.favorite = false;
@@ -113,6 +118,7 @@
     });
     sb.querySelectorAll('[data-cat]').forEach((el) => {
       el.onclick = () => {
+        exitSelectMode();
         pageState.filter.categoryId = el.dataset.cat;
         pageState.filter.favorite = false;
         pageState.filter.special = 'all';
@@ -155,18 +161,112 @@
       `;
       return;
     }
-    pane.innerHTML = items.map((e) => entryCardHtml(e)).join('');
+    const bar = pageState.selectMode ? bulkBarHtml() : '';
+    pane.innerHTML = bar + items.map((e) => entryCardHtml(e)).join('');
+
+    if (pageState.selectMode) wireBulkBar(pane);
+
     pane.querySelectorAll('[data-id]').forEach((card) => {
       const id = card.dataset.id;
-      card.onclick = () => selectEntry(id);
+      const check = card.querySelector('[data-sel]');
+      if (check) {
+        check.onclick = (ev) => ev.stopPropagation();
+        check.onchange = () => toggleSelect(id, check.checked, card);
+      }
+      card.onclick = () => {
+        if (pageState.selectMode) {
+          const c = card.querySelector('[data-sel]');
+          if (c) { c.checked = !c.checked; toggleSelect(id, c.checked, card); }
+        } else {
+          selectEntry(id);
+        }
+      };
       card.querySelectorAll('[data-action]').forEach((btn) => {
         btn.onclick = async (ev) => {
           ev.stopPropagation();
-          const action = btn.dataset.action;
-          await handleEntryAction(action, id);
+          await handleEntryAction(btn.dataset.action, id);
         };
       });
     });
+  }
+
+  function bulkBarHtml() {
+    const n = pageState.selected.size;
+    const cats = pageState.categories.map((c) => `<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join('');
+    return `
+      <div class="bulk-bar">
+        <span class="bulk-count">${n} selezionate</span>
+        <div class="bulk-actions">
+          <select class="select select-sm" id="bulkCat">
+            <option value="">Sposta in categoria…</option>
+            <option value="__none__">Nessuna categoria</option>
+            ${cats}
+          </select>
+          <button class="btn btn-danger btn-sm" id="bulkDelete" ${n ? '' : 'disabled'}>${ICONS.trash} Cestina</button>
+          <button class="btn btn-sm" id="bulkCancel">Annulla</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function wireBulkBar(pane) {
+    const containerEl = () => document.querySelector('.vault-layout').parentElement;
+    const catSel = pane.querySelector('#bulkCat');
+    if (catSel) catSel.onchange = async () => {
+      const val = catSel.value;
+      if (!val || !pageState.selected.size) { catSel.value = ''; return; }
+      const categoryId = val === '__none__' ? null : val;
+      const ids = [...pageState.selected];
+      for (const id of ids) {
+        const full = await window.API.vault.get(id);
+        if (full) await window.API.vault.update(id, { ...full, categoryId });
+      }
+      window.Toast.success(`${ids.length} voci spostate`);
+      exitSelectMode();
+      await refresh(containerEl());
+    };
+    const del = pane.querySelector('#bulkDelete');
+    if (del) del.onclick = async () => {
+      const ids = [...pageState.selected];
+      if (!ids.length) return;
+      if (!confirm(`Spostare ${ids.length} voci nel cestino?\n\nPotrai ripristinarle entro 30 giorni.`)) return;
+      for (const id of ids) await window.API.vault.delete(id);
+      window.Toast.success(`${ids.length} voci spostate nel cestino`);
+      exitSelectMode();
+      await refresh(containerEl());
+    };
+    const cancel = pane.querySelector('#bulkCancel');
+    if (cancel) cancel.onclick = () => { exitSelectMode(); renderEntries(); };
+  }
+
+  function toggleSelect(id, on, card) {
+    if (on) pageState.selected.add(id); else pageState.selected.delete(id);
+    if (card) card.classList.toggle('multi-sel', on);
+    const bar = document.querySelector('.bulk-bar');
+    if (bar) {
+      bar.querySelector('.bulk-count').textContent = `${pageState.selected.size} selezionate`;
+      const del = bar.querySelector('#bulkDelete');
+      if (del) del.disabled = pageState.selected.size === 0;
+    }
+  }
+
+  function enterSelectMode() {
+    pageState.selectMode = true;
+    pageState.selected.clear();
+    if (pageState.selectedId) closeDetail();
+    renderEntries();
+    updateSelectBtn();
+  }
+
+  function exitSelectMode() {
+    pageState.selectMode = false;
+    pageState.selected.clear();
+    updateSelectBtn();
+  }
+
+  function updateSelectBtn() {
+    const btn = document.getElementById('selectBtn');
+    if (btn) btn.classList.toggle('active', pageState.selectMode);
   }
 
   function renderTrash() {
@@ -241,24 +341,42 @@
   }
 
   function entryCardHtml(e) {
+    const isNote = e.type === 'note';
     const initial = (e.title || '?').charAt(0).toUpperCase();
-    const color = strengthColor(e.strength);
     const badges = [];
-    if (e.favorite) badges.push(`<span class="chip chip-fav">★</span>`);
-    if (e.strength < 50) badges.push('<span class="chip chip-weak">debole</span>');
+    if (e.favorite) badges.push('<span class="chip chip-fav">★</span>');
+    if (isNote) badges.push('<span class="chip">nota</span>');
+    else if (e.strength != null && e.strength < 50) badges.push('<span class="chip chip-weak">debole</span>');
+
+    const checkbox = pageState.selectMode
+      ? `<label class="sel-check"><input type="checkbox" data-sel="${e.id}" ${pageState.selected.has(e.id) ? 'checked' : ''}></label>`
+      : '';
+    const favicon = isNote
+      ? `<div class="entry-favicon note-fav">${ICONS.note}</div>`
+      : `<div class="entry-favicon">${initial}</div>`;
+    const sub = isNote
+      ? (escapeHtml((e.notes || '').split('\n')[0].slice(0, 60)) || 'Nota sicura')
+      : escapeHtml(e.username || '—');
+    const dot = (!isNote && e.strength != null)
+      ? `<div class="strength-dot" style="color:${strengthColor(e.strength)}; background:${strengthColor(e.strength)}" title="Forza ${e.strength}/100"></div>`
+      : '<span class="dot-spacer"></span>';
+    const actions = isNote
+      ? `<button class="btn btn-icon btn-ghost btn-sm" data-action="copy-content" title="Copia contenuto">${ICONS.copy}</button>
+         <button class="btn btn-icon btn-ghost btn-sm" data-action="edit" title="Modifica">${ICONS.edit}</button>`
+      : `<button class="btn btn-icon btn-ghost btn-sm" data-action="copy-user" title="Copia username">${ICONS.copy}</button>
+         <button class="btn btn-icon btn-ghost btn-sm" data-action="copy-pwd" title="Copia password">${ICONS.key}</button>
+         <button class="btn btn-icon btn-ghost btn-sm" data-action="edit" title="Modifica">${ICONS.edit}</button>`;
+
     return `
-      <div class="entry-card ${pageState.selectedId === e.id ? 'selected' : ''}" data-id="${e.id}">
-        <div class="entry-favicon">${initial}</div>
+      <div class="entry-card ${pageState.selectMode ? 'sel-mode' : ''} ${pageState.selectedId === e.id ? 'selected' : ''} ${pageState.selected.has(e.id) ? 'multi-sel' : ''}" data-id="${e.id}">
+        ${checkbox}
+        ${favicon}
         <div class="entry-meta">
           <div class="entry-title">${escapeHtml(e.title)} ${badges.join('')}</div>
-          <div class="entry-sub">${escapeHtml(e.username || '—')}</div>
+          <div class="entry-sub">${sub}</div>
         </div>
-        <div class="strength-dot" style="color:${color}; background:${color}" title="Forza ${e.strength}/100"></div>
-        <div class="entry-actions">
-          <button class="btn btn-icon btn-ghost btn-sm" data-action="copy-user" title="Copia username">${ICONS.copy}</button>
-          <button class="btn btn-icon btn-ghost btn-sm" data-action="copy-pwd" title="Copia password">${ICONS.key}</button>
-          <button class="btn btn-icon btn-ghost btn-sm" data-action="edit" title="Modifica">${ICONS.edit}</button>
-        </div>
+        ${dot}
+        <div class="entry-actions">${actions}</div>
       </div>
     `;
   }
@@ -280,6 +398,9 @@
       await window.API.clipboard.copy(entry.password || '');
       await window.API.vault.touch(id);
       window.Toast.info('Password copiata (auto-clear 30s)');
+    } else if (action === 'copy-content') {
+      await window.API.clipboard.copy(entry.notes || '');
+      window.Toast.info('Contenuto copiato (auto-clear 30s)');
     } else if (action === 'edit') {
       window.PageEntry.openEditor({
         entry,
@@ -316,8 +437,79 @@
     renderEntries();
   }
 
+  function renderNoteDetail(detail, entry) {
+    const cat = pageState.categories.find((c) => c.id === entry.categoryId);
+    detail.innerHTML = `
+      <div class="detail-header">
+        <div class="entry-favicon note-fav" style="width:44px;height:44px">${ICONS.note}</div>
+        <div style="flex:1; min-width:0;">
+          <div class="detail-title truncate">${escapeHtml(entry.title)}</div>
+          <div class="detail-sub">Nota sicura${cat ? ' · ' + escapeHtml(cat.nome) : ''}${entry.favorite ? ' · <span style="color:var(--warning)">★ Preferito</span>' : ''}</div>
+        </div>
+        <button class="btn btn-icon btn-ghost" id="closeDetail" title="Chiudi">${ICONS.close}</button>
+      </div>
+      <div class="detail-section">
+        <div class="detail-label">Contenuto</div>
+        <div class="note-content" id="noteContent" data-visible="0">•••••••• (clicca "Mostra" per rivelare)</div>
+        <div class="flex gap-sm mt-sm">
+          <button class="btn btn-sm grow" id="revealNote">${ICONS.eye} Mostra / Nascondi</button>
+          <button class="btn btn-sm grow" id="copyNote">${ICONS.copy} Copia</button>
+        </div>
+      </div>
+      <div class="detail-section">
+        <div class="flex gap-sm wrap">
+          <button class="btn grow" id="editBtn">${ICONS.edit} Modifica</button>
+          <button class="btn grow" id="favBtn">${entry.favorite ? ICONS.starFill + ' Rimuovi' : ICONS.star + ' Preferito'}</button>
+        </div>
+        <div class="flex gap-sm wrap mt-sm">
+          <button class="btn grow" id="dupBtn">${ICONS.copy} Duplica</button>
+          <button class="btn btn-danger grow" id="delBtn">${ICONS.trash} Elimina</button>
+        </div>
+        <div class="detail-sub mt-md">
+          Creato: ${formatDate(entry.createdAt)}<br>
+          Modificato: ${formatDate(entry.updatedAt)}
+        </div>
+      </div>
+    `;
+    detail.querySelector('#closeDetail').onclick = closeDetail;
+    const content = detail.querySelector('#noteContent');
+    detail.querySelector('#revealNote').onclick = () => {
+      const v = content.dataset.visible === '1';
+      content.dataset.visible = v ? '0' : '1';
+      content.textContent = v ? '•••••••• (clicca "Mostra" per rivelare)' : (entry.notes || '(vuoto)');
+      content.classList.toggle('revealed', !v);
+    };
+    detail.querySelector('#copyNote').onclick = async () => {
+      await window.API.clipboard.copy(entry.notes || '');
+      window.Toast.info('Contenuto copiato (auto-clear 30s)');
+    };
+    detail.querySelector('#editBtn').onclick = () => {
+      window.PageEntry.openEditor({
+        entry, categories: pageState.categories,
+        onSaved: async () => { await reloadEntries(); selectEntry(entry.id); }
+      });
+    };
+    detail.querySelector('#dupBtn').onclick = async () => {
+      const id = await window.API.vault.duplicate(entry.id);
+      window.Toast.success('Voce duplicata');
+      await reloadEntries(); selectEntry(id);
+    };
+    detail.querySelector('#delBtn').onclick = async () => {
+      if (!confirm('Spostare questa voce nel cestino?\n\nPotrai ripristinarla entro 30 giorni dalla sezione Cestino.')) return;
+      await window.API.vault.delete(entry.id);
+      closeDetail();
+      await refresh(document.querySelector('.vault-layout').parentElement);
+      window.Toast.success('Spostata nel cestino');
+    };
+    detail.querySelector('#favBtn').onclick = async () => {
+      await window.API.vault.favorite(entry.id, !entry.favorite);
+      await reloadEntries(); selectEntry(entry.id);
+    };
+  }
+
   function renderDetail(detail, entry) {
     detail.classList.add('open');
+    if (entry.type === 'note') return renderNoteDetail(detail, entry);
     const cat = pageState.categories.find((c) => c.id === entry.categoryId);
     detail.innerHTML = `
       <div class="detail-header">
@@ -668,6 +860,7 @@
             <option value="az">A → Z</option>
             <option value="za">Z → A</option>
           </select>
+          <button class="btn" id="selectBtn" title="Selezione multipla">${ICONS.check}<span>Seleziona</span></button>
           <button class="btn btn-primary" id="newEntryBtn">${ICONS.plus}<span>Nuova voce</span></button>
         </header>
         <div class="vault-content no-detail" id="vaultContent">
@@ -691,8 +884,13 @@
     container.querySelector('#newEntryBtn').onclick = () => {
       window.PageEntry.openEditor({
         categories: pageState.categories,
-        onSaved: async () => { await reloadEntries(); }
+        onSaved: async () => { await refresh(container); }
       });
+    };
+
+    container.querySelector('#selectBtn').onclick = () => {
+      if (pageState.selectMode) { exitSelectMode(); renderEntries(); }
+      else { enterSelectMode(); }
     };
 
     const onKey = (e) => {

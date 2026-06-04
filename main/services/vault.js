@@ -152,7 +152,7 @@ async function changeMasterPassword(oldPwd, newPwd) {
   const db = Database.get();
   const rows = db
     .prepare(
-      `SELECT id, title_enc, username_enc, password_enc, url_enc, notes_enc, totp_secret_enc
+      `SELECT id, title_enc, username_enc, password_enc, url_enc, notes_enc, totp_secret_enc, extra_enc
        FROM entries`
     )
     .all();
@@ -166,7 +166,8 @@ async function changeMasterPassword(oldPwd, newPwd) {
     password: CryptoSvc.decrypt(r.password_enc, sessionKey),
     url: CryptoSvc.decrypt(r.url_enc, sessionKey),
     notes: CryptoSvc.decrypt(r.notes_enc, sessionKey),
-    totp: CryptoSvc.decrypt(r.totp_secret_enc, sessionKey)
+    totp: CryptoSvc.decrypt(r.totp_secret_enc, sessionKey),
+    extra: CryptoSvc.decrypt(r.extra_enc, sessionKey)
   }));
   const histPlain = histRows.map((r) => ({
     id: r.id,
@@ -184,7 +185,7 @@ async function changeMasterPassword(oldPwd, newPwd) {
 
     const upd = db.prepare(
       `UPDATE entries SET
-         title_enc = ?, username_enc = ?, password_enc = ?, url_enc = ?, notes_enc = ?, totp_secret_enc = ?
+         title_enc = ?, username_enc = ?, password_enc = ?, url_enc = ?, notes_enc = ?, totp_secret_enc = ?, extra_enc = ?
        WHERE id = ?`
     );
     for (const p of plain) {
@@ -195,6 +196,7 @@ async function changeMasterPassword(oldPwd, newPwd) {
         CryptoSvc.encrypt(p.url, newKey),
         CryptoSvc.encrypt(p.notes, newKey),
         CryptoSvc.encrypt(p.totp, newKey),
+        CryptoSvc.encrypt(p.extra, newKey),
         p.id
       );
     }
@@ -225,32 +227,38 @@ async function changeMasterPassword(oldPwd, newPwd) {
  * @param {EntryInput} data
  * @returns {string} id
  */
+const VALID_TYPES = ['login', 'note', 'ssh'];
+
 function createEntry(data) {
   const key = requireKey();
   if (!data || typeof data.title !== 'string' || data.title.trim() === '') {
     throw new Error('Titolo mancante.');
   }
-  if (typeof data.password !== 'string' || data.password.length === 0) {
+  const type = VALID_TYPES.includes(data.type) ? data.type : 'login';
+  if (type === 'login' && (typeof data.password !== 'string' || data.password.length === 0)) {
     throw new Error('Password mancante.');
   }
+  const extraJson = data.extra ? JSON.stringify(data.extra) : null;
   const id = uuid();
   const now = nowIso();
   Database.get()
     .prepare(
       `INSERT INTO entries
-        (id, category_id, title_enc, username_enc, password_enc, url_enc, notes_enc, totp_secret_enc,
-         favorite, created_at, updated_at, password_changed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        (id, category_id, type, title_enc, username_enc, password_enc, url_enc, notes_enc, totp_secret_enc,
+         extra_enc, favorite, created_at, updated_at, password_changed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       id,
       data.categoryId || null,
+      type,
       CryptoSvc.encrypt(data.title.trim(), key),
       CryptoSvc.encrypt(data.username || null, key),
-      CryptoSvc.encrypt(data.password, key),
+      CryptoSvc.encrypt(data.password || null, key),
       CryptoSvc.encrypt(data.url || null, key),
       CryptoSvc.encrypt(data.notes || null, key),
       CryptoSvc.encrypt(data.totpSecret || null, key),
+      CryptoSvc.encrypt(extraJson, key),
       data.favorite ? 1 : 0,
       now,
       now,
@@ -266,12 +274,19 @@ function createEntry(data) {
 function updateEntry(id, data) {
   const key = requireKey();
   const db = Database.get();
-  const current = db.prepare(`SELECT password_enc FROM entries WHERE id = ?`).get(id);
+  const current = db.prepare(`SELECT password_enc, type FROM entries WHERE id = ?`).get(id);
   if (!current) throw new Error('Voce non trovata.');
 
   const now = nowIso();
+  const type = VALID_TYPES.includes(data.type) ? data.type : (current.type || 'login');
   const currentPwd = CryptoSvc.decrypt(current.password_enc, key);
-  const passwordChanged = typeof data.password === 'string' && data.password !== currentPwd;
+  // Storico solo se esisteva una password precedente ed è effettivamente cambiata.
+  const passwordChanged =
+    typeof data.password === 'string' &&
+    data.password.length > 0 &&
+    !!current.password_enc &&
+    data.password !== currentPwd;
+  const extraJson = data.extra ? JSON.stringify(data.extra) : null;
 
   const tx = db.transaction(() => {
     if (passwordChanged) {
@@ -283,24 +298,28 @@ function updateEntry(id, data) {
     db.prepare(
       `UPDATE entries SET
          category_id = ?,
+         type = ?,
          title_enc = ?,
          username_enc = ?,
          password_enc = ?,
          url_enc = ?,
          notes_enc = ?,
          totp_secret_enc = ?,
+         extra_enc = ?,
          favorite = ?,
          updated_at = ?,
          password_changed_at = CASE WHEN ? THEN ? ELSE password_changed_at END
        WHERE id = ?`
     ).run(
       data.categoryId || null,
+      type,
       CryptoSvc.encrypt((data.title || '').trim(), key),
       CryptoSvc.encrypt(data.username || null, key),
-      CryptoSvc.encrypt(data.password, key),
+      CryptoSvc.encrypt(data.password || null, key),
       CryptoSvc.encrypt(data.url || null, key),
       CryptoSvc.encrypt(data.notes || null, key),
       CryptoSvc.encrypt(data.totpSecret || null, key),
+      CryptoSvc.encrypt(extraJson, key),
       data.favorite ? 1 : 0,
       now,
       passwordChanged ? 1 : 0,
@@ -404,15 +423,18 @@ function duplicateEntry(id) {
   const key = requireKey();
   const row = Database.get().prepare(`SELECT * FROM entries WHERE id = ?`).get(id);
   if (!row) throw new Error('Voce non trovata.');
+  const src = decryptRow(row, key);
   const data = {
-    title: (CryptoSvc.decrypt(row.title_enc, key) || '') + ' (copia)',
-    username: CryptoSvc.decrypt(row.username_enc, key),
-    password: CryptoSvc.decrypt(row.password_enc, key),
-    url: CryptoSvc.decrypt(row.url_enc, key),
-    notes: CryptoSvc.decrypt(row.notes_enc, key),
-    totpSecret: CryptoSvc.decrypt(row.totp_secret_enc, key),
-    categoryId: row.category_id,
-    favorite: !!row.favorite
+    type: src.type,
+    title: (src.title || '') + ' (copia)',
+    username: src.username,
+    password: src.password,
+    url: src.url,
+    notes: src.notes,
+    totpSecret: src.totpSecret,
+    extra: src.extra,
+    categoryId: src.categoryId,
+    favorite: !!src.favorite
   };
   return createEntry(data);
 }
@@ -449,8 +471,16 @@ function getEntry(id) {
  * @param {Buffer} key
  */
 function decryptRow(row, key) {
+  let extra = null;
+  if (row.extra_enc) {
+    try {
+      const raw = CryptoSvc.decrypt(row.extra_enc, key);
+      extra = raw ? JSON.parse(raw) : null;
+    } catch (_e) { extra = null; }
+  }
   return {
     id: row.id,
+    type: row.type || 'login',
     categoryId: row.category_id,
     title: CryptoSvc.decrypt(row.title_enc, key) || '',
     username: CryptoSvc.decrypt(row.username_enc, key),
@@ -458,6 +488,7 @@ function decryptRow(row, key) {
     url: CryptoSvc.decrypt(row.url_enc, key),
     notes: CryptoSvc.decrypt(row.notes_enc, key),
     totpSecret: CryptoSvc.decrypt(row.totp_secret_enc, key),
+    extra,
     hasTotp: !!row.totp_secret_enc,
     favorite: !!row.favorite,
     createdAt: row.created_at,
@@ -504,11 +535,12 @@ function listEntries(filter = {}) {
       .sort((a, b) => (a.lastUsed < b.lastUsed ? 1 : -1))
       .slice(0, 10);
   } else if (filter.special === 'weak') {
-    items = items.filter((i) => PwdGen.strengthScore(i.password).score < 50);
+    items = items.filter((i) => i.type === 'login' && i.password && PwdGen.strengthScore(i.password).score < 50);
   } else if (filter.special === 'old') {
     const ninety = Date.now() - 90 * 24 * 3600 * 1000;
     items = items.filter(
-      (i) => !i.passwordChangedAt || new Date(i.passwordChangedAt).getTime() < ninety
+      (i) => i.type === 'login' && i.password &&
+        (!i.passwordChangedAt || new Date(i.passwordChangedAt).getTime() < ninety)
     );
   }
 
@@ -538,10 +570,10 @@ function listEntries(filter = {}) {
       items.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
   }
 
-  // Allega strength score (senza esporre password nel list se usato per UI lista)
+  // Allega strength score solo alle voci di tipo login con password
   return items.map((i) => ({
     ...i,
-    strength: PwdGen.strengthScore(i.password).score
+    strength: (i.type === 'login' && i.password) ? PwdGen.strengthScore(i.password).score : null
   }));
 }
 
@@ -612,16 +644,18 @@ function deleteCategory(id) {
 function stats() {
   requireKey();
   const items = listEntries();
+  const login = items.filter((i) => i.type === 'login' && i.password);
   const total = items.length;
+  const scored = login.length;
   const avg =
-    total === 0 ? 0 : Math.round(items.reduce((s, i) => s + i.strength, 0) / total);
-  const weak = items.filter((i) => i.strength < 50).length;
+    scored === 0 ? 0 : Math.round(login.reduce((s, i) => s + i.strength, 0) / scored);
+  const weak = login.filter((i) => i.strength < 50).length;
   const ninety = Date.now() - 90 * 24 * 3600 * 1000;
-  const old = items.filter(
+  const old = login.filter(
     (i) => !i.passwordChangedAt || new Date(i.passwordChangedAt).getTime() < ninety
   ).length;
   const reuse = {};
-  for (const i of items) reuse[i.password] = (reuse[i.password] || 0) + 1;
+  for (const i of login) reuse[i.password] = (reuse[i.password] || 0) + 1;
   const duplicates = Object.values(reuse).filter((n) => n > 1).length;
   return { total, averageStrength: avg, weak, old, duplicates };
 }
@@ -633,7 +667,7 @@ function stats() {
  */
 function healthReport() {
   const key = requireKey();
-  const items = listEntries();
+  const items = listEntries().filter((i) => i.type === 'login' && i.password);
   const total = items.length;
   const avg = total === 0 ? 0 : Math.round(items.reduce((s, i) => s + i.strength, 0) / total);
 
@@ -751,9 +785,9 @@ function importPlain(snapshot, mode = 'merge') {
     if (Array.isArray(snapshot.entries)) {
       const ins = db.prepare(
         `INSERT INTO entries
-          (id, category_id, title_enc, username_enc, password_enc, url_enc, notes_enc, totp_secret_enc,
-           favorite, created_at, updated_at, password_changed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          (id, category_id, type, title_enc, username_enc, password_enc, url_enc, notes_enc, totp_secret_enc,
+           extra_enc, favorite, created_at, updated_at, password_changed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       for (const e of snapshot.entries) {
         const sig = `${e.title || ''}::${e.username || ''}`;
@@ -762,15 +796,18 @@ function importPlain(snapshot, mode = 'merge') {
           continue;
         }
         const now = nowIso();
+        const extraJson = e.extra ? JSON.stringify(e.extra) : null;
         ins.run(
           uuid(),
           e.categoryId || null,
+          VALID_TYPES.includes(e.type) ? e.type : 'login',
           CryptoSvc.encrypt(e.title || '', key),
           CryptoSvc.encrypt(e.username || null, key),
-          CryptoSvc.encrypt(e.password || '', key),
+          CryptoSvc.encrypt(e.password || null, key),
           CryptoSvc.encrypt(e.url || null, key),
           CryptoSvc.encrypt(e.notes || null, key),
           CryptoSvc.encrypt(e.totpSecret || null, key),
+          CryptoSvc.encrypt(extraJson, key),
           e.favorite ? 1 : 0,
           e.createdAt || now,
           e.updatedAt || now,

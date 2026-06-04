@@ -1,6 +1,6 @@
 'use strict';
 
-/** Editor voce (modal). */
+/** Editor voce (modal) — supporta tipi: login, nota sicura. */
 (() => {
   const ICONS = {
     eye: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s4-8 10-8 10 8 10 8-4 8-10 8-10-8-10-8Z"/><circle cx="12" cy="12" r="3"/></svg>',
@@ -16,8 +16,9 @@
       .replace(/"/g, '&quot;');
   }
 
-  function openEditor({ entry = null, categories = [], onSaved }) {
+  function openEditor({ entry = null, categories = [], onSaved, defaultType = 'login' }) {
     const isEdit = !!entry;
+    let type = isEdit ? (entry.type || 'login') : (defaultType || 'login');
     const root = document.createElement('div');
     root.className = 'modal-backdrop';
     root.innerHTML = `
@@ -27,6 +28,12 @@
           <button class="btn btn-icon btn-ghost" id="x">${ICONS.close}</button>
         </div>
         <div class="modal-body">
+          ${isEdit ? '' : `
+          <div class="mode-switcher mb-md" id="typeSwitch">
+            <button class="active" data-type="login">Login</button>
+            <button data-type="note">Nota sicura</button>
+          </div>`}
+
           <div class="field">
             <label>Titolo *</label>
             <input class="input" id="f_title" value="${escapeHtml(entry?.title || '')}" placeholder="Es: Gmail, Twitter, Banca XYZ" />
@@ -38,32 +45,36 @@
               ${categories.map((c) => `<option value="${c.id}" ${entry?.categoryId === c.id ? 'selected' : ''}>${escapeHtml(c.nome)}</option>`).join('')}
             </select>
           </div>
-          <div class="field">
-            <label>Username / Email</label>
-            <input class="input" id="f_user" value="${escapeHtml(entry?.username || '')}" placeholder="utente@esempio.com" />
-          </div>
-          <div class="field">
-            <label>Password *</label>
-            <div class="input-group">
-              <input class="input input-mono" id="f_pwd" type="password" value="${escapeHtml(entry?.password || '')}" />
-              <div class="input-addon">
-                <button class="btn btn-icon btn-ghost" id="togglePwd" title="Mostra">${ICONS.eye}</button>
-                <button class="btn btn-icon btn-ghost" id="genPwd" title="Genera">${ICONS.dice}</button>
-              </div>
+
+          <div id="loginFields">
+            <div class="field">
+              <label>Username / Email</label>
+              <input class="input" id="f_user" value="${escapeHtml(entry?.username || '')}" placeholder="utente@esempio.com" />
             </div>
-            <div id="strengthBar" style="margin-top:6px;"></div>
+            <div class="field">
+              <label>Password *</label>
+              <div class="input-group">
+                <input class="input input-mono" id="f_pwd" type="password" value="${escapeHtml(entry?.password || '')}" />
+                <div class="input-addon">
+                  <button class="btn btn-icon btn-ghost" id="togglePwd" title="Mostra">${ICONS.eye}</button>
+                  <button class="btn btn-icon btn-ghost" id="genPwd" title="Genera">${ICONS.dice}</button>
+                </div>
+              </div>
+              <div id="strengthBar" style="margin-top:6px;"></div>
+            </div>
+            <div class="field">
+              <label>URL</label>
+              <input class="input" id="f_url" value="${escapeHtml(entry?.url || '')}" placeholder="https://esempio.com" />
+            </div>
+            <div class="field">
+              <label>TOTP secret (base32)</label>
+              <input class="input input-mono" id="f_totp" value="${escapeHtml(entry?.totpSecret || '')}" placeholder="JBSWY3DPEHPK3PXP" />
+              <span class="hint">Lascia vuoto se non usi la 2FA. Accetta spazi — verranno rimossi.</span>
+            </div>
           </div>
+
           <div class="field">
-            <label>URL</label>
-            <input class="input" id="f_url" value="${escapeHtml(entry?.url || '')}" placeholder="https://esempio.com" />
-          </div>
-          <div class="field">
-            <label>TOTP secret (base32)</label>
-            <input class="input input-mono" id="f_totp" value="${escapeHtml(entry?.totpSecret || '')}" placeholder="JBSWY3DPEHPK3PXP" />
-            <span class="hint">Lascia vuoto se non usi la 2FA. Accetta spazi — verranno rimossi.</span>
-          </div>
-          <div class="field">
-            <label>Note</label>
+            <label id="notesLabel">Note</label>
             <textarea class="textarea" id="f_notes" placeholder="Note private, cifrate nel vault">${escapeHtml(entry?.notes || '')}</textarea>
           </div>
           <label class="checkbox">
@@ -95,19 +106,58 @@
       window.Toast.info('Password generata');
     };
 
+    // Visibilità campi in base al tipo
+    const applyType = () => {
+      const isNote = type === 'note';
+      root.querySelector('#loginFields').style.display = isNote ? 'none' : '';
+      root.querySelector('#notesLabel').textContent = isNote ? 'Contenuto *' : 'Note';
+      const ta = root.querySelector('#f_notes');
+      ta.style.minHeight = isNote ? '170px' : '';
+      ta.placeholder = isNote ? 'Testo riservato, cifrato nel vault' : 'Note private, cifrate nel vault';
+    };
+    applyType();
+
+    const switcher = root.querySelector('#typeSwitch');
+    if (switcher) {
+      switcher.querySelectorAll('[data-type]').forEach((b) => {
+        b.onclick = () => {
+          type = b.dataset.type;
+          switcher.querySelectorAll('[data-type]').forEach((x) => x.classList.toggle('active', x === b));
+          applyType();
+        };
+      });
+    }
+
     root.querySelector('#save').onclick = async () => {
-      const data = {
-        title: root.querySelector('#f_title').value.trim(),
-        categoryId: root.querySelector('#f_cat').value || null,
-        username: root.querySelector('#f_user').value.trim(),
-        password: pwd.value,
-        url: root.querySelector('#f_url').value.trim(),
-        totpSecret: root.querySelector('#f_totp').value.trim().replace(/\s+/g, ''),
-        notes: root.querySelector('#f_notes').value,
-        favorite: root.querySelector('#f_fav').checked
-      };
-      if (!data.title) return window.Toast.error('Titolo richiesto');
-      if (!data.password) return window.Toast.error('Password richiesta');
+      const title = root.querySelector('#f_title').value.trim();
+      if (!title) return window.Toast.error('Titolo richiesto');
+
+      let data;
+      if (type === 'note') {
+        const content = root.querySelector('#f_notes').value;
+        if (!content.trim()) return window.Toast.error('Contenuto richiesto');
+        data = {
+          type: 'note',
+          title,
+          categoryId: root.querySelector('#f_cat').value || null,
+          notes: content,
+          favorite: root.querySelector('#f_fav').checked
+        };
+      } else {
+        data = {
+          type: 'login',
+          title,
+          categoryId: root.querySelector('#f_cat').value || null,
+          username: root.querySelector('#f_user').value.trim(),
+          password: pwd.value,
+          url: root.querySelector('#f_url').value.trim(),
+          totpSecret: root.querySelector('#f_totp').value.trim().replace(/\s+/g, ''),
+          notes: root.querySelector('#f_notes').value,
+          favorite: root.querySelector('#f_fav').checked
+        };
+        if (!data.password) return window.Toast.error('Password richiesta');
+      }
+
       try {
         if (isEdit) await window.API.vault.update(entry.id, data);
         else await window.API.vault.create(data);

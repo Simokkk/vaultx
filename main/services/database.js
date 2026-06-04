@@ -31,17 +31,20 @@ CREATE TABLE IF NOT EXISTS categories (
 CREATE TABLE IF NOT EXISTS entries (
   id TEXT PRIMARY KEY,
   category_id TEXT,
+  type TEXT NOT NULL DEFAULT 'login',
   title_enc TEXT NOT NULL,
   username_enc TEXT,
-  password_enc TEXT NOT NULL,
+  password_enc TEXT,
   url_enc TEXT,
   notes_enc TEXT,
   totp_secret_enc TEXT,
+  extra_enc TEXT,
   favorite INTEGER DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   last_used TEXT,
   password_changed_at TEXT,
+  deleted_at TEXT,
   FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
 );
 
@@ -98,11 +101,65 @@ function init(dbPath) {
  */
 function migrate(database) {
   // v1.3: soft-delete (cestino) — colonna deleted_at su entries
-  const cols = database.prepare(`PRAGMA table_info(entries)`).all();
+  let cols = database.prepare(`PRAGMA table_info(entries)`).all();
   if (!cols.some((c) => c.name === 'deleted_at')) {
     database.exec(`ALTER TABLE entries ADD COLUMN deleted_at TEXT`);
   }
   database.exec(`CREATE INDEX IF NOT EXISTS idx_entries_deleted ON entries(deleted_at)`);
+
+  // v1.5: tipi di voce — colonne type + extra_enc, e password_enc reso opzionale.
+  // Richiede la ricostruzione della tabella (SQLite non rimuove NOT NULL con ALTER).
+  // Procedura sicura con FK disattivate per non innescare il CASCADE su password_history.
+  cols = database.prepare(`PRAGMA table_info(entries)`).all();
+  if (!cols.some((c) => c.name === 'type')) {
+    database.pragma('foreign_keys = OFF');
+    const rebuild = database.transaction(() => {
+      database.exec(`
+        CREATE TABLE entries_new (
+          id TEXT PRIMARY KEY,
+          category_id TEXT,
+          type TEXT NOT NULL DEFAULT 'login',
+          title_enc TEXT NOT NULL,
+          username_enc TEXT,
+          password_enc TEXT,
+          url_enc TEXT,
+          notes_enc TEXT,
+          totp_secret_enc TEXT,
+          extra_enc TEXT,
+          favorite INTEGER DEFAULT 0,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          last_used TEXT,
+          password_changed_at TEXT,
+          deleted_at TEXT,
+          FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
+        );
+      `);
+      database.exec(`
+        INSERT INTO entries_new
+          (id, category_id, type, title_enc, username_enc, password_enc, url_enc,
+           notes_enc, totp_secret_enc, extra_enc, favorite, created_at, updated_at,
+           last_used, password_changed_at, deleted_at)
+        SELECT
+           id, category_id, 'login', title_enc, username_enc, password_enc, url_enc,
+           notes_enc, totp_secret_enc, NULL, favorite, created_at, updated_at,
+           last_used, password_changed_at, deleted_at
+        FROM entries;
+      `);
+      database.exec(`DROP TABLE entries`);
+      database.exec(`ALTER TABLE entries_new RENAME TO entries`);
+      database.exec(`CREATE INDEX IF NOT EXISTS idx_entries_category ON entries(category_id)`);
+      database.exec(`CREATE INDEX IF NOT EXISTS idx_entries_favorite ON entries(favorite)`);
+      database.exec(`CREATE INDEX IF NOT EXISTS idx_entries_updated ON entries(updated_at)`);
+      database.exec(`CREATE INDEX IF NOT EXISTS idx_entries_deleted ON entries(deleted_at)`);
+    });
+    rebuild();
+    const fkErrors = database.pragma('foreign_key_check');
+    database.pragma('foreign_keys = ON');
+    if (Array.isArray(fkErrors) && fkErrors.length > 0) {
+      throw new Error('Migrazione 1.5 fallita: violazioni di integrità rilevate.');
+    }
+  }
 }
 
 /** @returns {import('better-sqlite3').Database} */
