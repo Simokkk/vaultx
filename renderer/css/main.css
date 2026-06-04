@@ -548,6 +548,84 @@ p { color: var(--text-2); }
   color: var(--accent-hover);
 }
 
+/* ---------- Category nav items (colored dot + hover edit) ---------- */
+.cat-item { gap: var(--sp-2); padding-right: 6px; }
+.nav-item.cat-item > .cat-dot {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.cat-dot.lg { width: 14px; height: 14px; }
+.cat-item .cat-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cat-edit {
+  flex: 0 0 auto;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.cat-edit svg { width: 13px; height: 13px; color: currentColor; }
+.cat-edit:hover { background: rgba(255, 255, 255, 0.08); color: var(--text-1); }
+.cat-item:hover .cat-edit { display: inline-flex; }
+.cat-item:hover .count { display: none; }
+.nav-empty {
+  padding: 6px var(--sp-3);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  font-style: italic;
+}
+
+/* ---------- Category modal (color picker) ---------- */
+.cat-name-preview { display: flex; align-items: center; gap: var(--sp-3); }
+.cat-name-preview .input { flex: 1; }
+.color-picker-row { display: flex; align-items: center; gap: var(--sp-3); }
+.color-picker-row input[type="color"] {
+  width: 44px;
+  height: 38px;
+  padding: 2px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.color-swatches { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; }
+.swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+  transition: transform var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+.swatch:hover { transform: scale(1.15); }
+.swatch.sel { border-color: var(--text-1); }
+.cat-del-note {
+  margin-top: var(--sp-2);
+  padding: var(--sp-3);
+  background: var(--warning-soft);
+  border-radius: var(--r-md);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  line-height: 1.5;
+}
+
 .sidebar-footer {
   margin-top: auto;
   padding: var(--sp-4) var(--sp-3) var(--sp-2);

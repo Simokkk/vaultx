@@ -75,12 +75,18 @@
     `;
 
     const catList = sb.querySelector('#catList');
-    catList.innerHTML = pageState.categories.map((c) => `
-      <div class="nav-item ${pageState.filter.categoryId === c.id ? 'active' : ''}" data-cat="${c.id}">
-        ${ICONS.folder}<span>${escapeHtml(c.nome)}</span>
-        <span class="count">${c.count || 0}</span>
-      </div>
-    `).join('');
+    if (!pageState.categories.length) {
+      catList.innerHTML = '<div class="nav-empty">Nessuna categoria</div>';
+    } else {
+      catList.innerHTML = pageState.categories.map((c) => `
+        <div class="nav-item cat-item ${pageState.filter.categoryId === c.id ? 'active' : ''}" data-cat="${c.id}">
+          <span class="cat-dot" style="background:${safeColor(c.colore)}"></span>
+          <span class="cat-name truncate">${escapeHtml(c.nome)}</span>
+          <span class="count">${c.count || 0}</span>
+          <button class="cat-edit" data-cat-edit="${c.id}" title="Modifica categoria">${ICONS.edit}</button>
+        </div>
+      `).join('');
+    }
 
     sb.querySelectorAll('[data-f]').forEach((el) => {
       el.onclick = () => {
@@ -99,6 +105,13 @@
         pageState.filter.favorite = false;
         pageState.filter.special = 'all';
         refresh(container);
+      };
+    });
+    sb.querySelectorAll('[data-cat-edit]').forEach((el) => {
+      el.onclick = (ev) => {
+        ev.stopPropagation();
+        const cat = pageState.categories.find((c) => c.id === el.dataset.catEdit);
+        if (cat) openCategoryModal(cat);
       };
     });
     sb.querySelector('#newCat').onclick = () => openCategoryModal();
@@ -450,7 +463,10 @@
     }, 1000);
   }
 
+  const SWATCHES = ['#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f59e0b', '#10b981', '#22c55e', '#06b6d4', '#3b82f6', '#64748b'];
+
   function openCategoryModal(existing) {
+    const initColor = safeColor(existing?.colore);
     const root = document.createElement('div');
     root.className = 'modal-backdrop';
     root.innerHTML = `
@@ -462,41 +478,83 @@
         <div class="modal-body">
           <div class="field">
             <label>Nome</label>
-            <input class="input" id="cName" value="${escapeHtml(existing?.nome || '')}" placeholder="Es: Lavoro, Social, Banche" />
+            <div class="cat-name-preview">
+              <span class="cat-dot lg" id="cPreviewDot" style="background:${initColor}"></span>
+              <input class="input" id="cName" value="${escapeHtml(existing?.nome || '')}" placeholder="Es: Lavoro, Social, Banche" />
+            </div>
           </div>
           <div class="field">
             <label>Colore</label>
-            <input class="input" id="cColor" value="${escapeHtml(existing?.colore || '#6366f1')}" placeholder="#6366f1" />
+            <div class="color-picker-row">
+              <input type="color" id="cColor" value="${initColor}" />
+              <div class="color-swatches" id="swatches">
+                ${SWATCHES.map((s) => `<button type="button" class="swatch ${s.toLowerCase() === initColor.toLowerCase() ? 'sel' : ''}" data-sw="${s}" style="background:${s}" title="${s}"></button>`).join('')}
+              </div>
+            </div>
           </div>
+          ${existing ? `<div class="cat-del-note">Eliminando la categoria, le <strong>${existing.count || 0} voci</strong> al suo interno NON verranno eliminate: resteranno senza categoria.</div>` : ''}
         </div>
         <div class="modal-footer">
-          ${existing ? '<button class="btn btn-danger" id="cDel" style="margin-right:auto">Elimina</button>' : ''}
+          ${existing ? `<button class="btn btn-danger" id="cDel" style="margin-right:auto">${ICONS.trash} Elimina</button>` : ''}
           <button class="btn" id="cCancel">Annulla</button>
-          <button class="btn btn-primary" id="cSave">Salva</button>
+          <button class="btn btn-primary" id="cSave">${existing ? 'Salva modifiche' : 'Crea categoria'}</button>
         </div>
       </div>
     `;
     document.body.appendChild(root);
     const close = () => root.remove();
+    const colorInp = root.querySelector('#cColor');
+    const dot = root.querySelector('#cPreviewDot');
+    const nameInp = root.querySelector('#cName');
+
+    const syncColor = (val) => {
+      colorInp.value = val;
+      dot.style.background = val;
+      root.querySelectorAll('.swatch').forEach((b) =>
+        b.classList.toggle('sel', b.dataset.sw.toLowerCase() === val.toLowerCase()));
+    };
+    colorInp.oninput = () => syncColor(colorInp.value);
+    root.querySelectorAll('.swatch').forEach((b) => {
+      b.onclick = () => syncColor(b.dataset.sw);
+    });
+
     root.querySelector('#x').onclick = close;
     root.querySelector('#cCancel').onclick = close;
-    if (existing) root.querySelector('#cDel').onclick = async () => {
-      if (!confirm('Eliminare la categoria? Le voci non verranno eliminate.')) return;
-      await window.API.vault.categories.delete(existing.id);
-      close();
+
+    const reloadAfter = async () => {
       const container = document.querySelector('.vault-layout').parentElement;
       await refresh(container);
     };
+
+    if (existing) root.querySelector('#cDel').onclick = async () => {
+      if (!confirm(`Eliminare la categoria "${existing.nome}"?\n\nLe voci al suo interno NON verranno eliminate.`)) return;
+      await window.API.vault.categories.delete(existing.id);
+      // Se stavamo filtrando per questa categoria, torna a "tutte"
+      if (pageState.filter.categoryId === existing.id) {
+        pageState.filter.categoryId = null;
+        pageState.filter.special = 'all';
+      }
+      close();
+      await reloadAfter();
+      window.Toast.success('Categoria eliminata');
+    };
     root.querySelector('#cSave').onclick = async () => {
-      const name = root.querySelector('#cName').value.trim();
-      const color = root.querySelector('#cColor').value.trim();
+      const name = nameInp.value.trim();
+      const color = safeColor(colorInp.value);
       if (!name) return window.Toast.error('Nome richiesto');
       if (existing) await window.API.vault.categories.update(existing.id, { nome: name, colore: color, icona: existing.icona || 'folder' });
       else await window.API.vault.categories.create({ nome: name, colore: color });
       close();
-      const container = document.querySelector('.vault-layout').parentElement;
-      await refresh(container);
+      await reloadAfter();
+      window.Toast.success(existing ? 'Categoria aggiornata' : 'Categoria creata');
     };
+
+    nameInp.focus();
+  }
+
+  function safeColor(c) {
+    const v = String(c || '').trim();
+    return /^#[0-9a-fA-F]{6}$/.test(v) ? v : '#6366f1';
   }
 
   function escapeHtml(s) {
