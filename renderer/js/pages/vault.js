@@ -567,7 +567,17 @@
           <button class="btn btn-sm grow" id="revealKey">${ICONS.eye} Mostra / Nascondi</button>
           <button class="btn btn-sm grow" id="copyKey">${ICONS.copy} Copia</button>
         </div>
-        ${ex.passphrase ? `<div class="detail-sub mt-sm">🔑 Passphrase salvata — <a href="#" id="copyPass">copia negli appunti</a></div>` : ''}
+        ${ex.passphrase ? `
+          <div class="detail-label" style="margin-top:var(--sp-4)">Passphrase chiave</div>
+          <div class="detail-value">
+            <span class="val text-mono" id="passVal" data-visible="0">••••••••</span>
+            <div class="detail-actions">
+              <button class="btn btn-icon btn-ghost" id="togglePass" title="Mostra">${ICONS.eye}</button>
+              <button class="btn btn-icon btn-ghost" id="copyPass" title="Copia">${ICONS.copy}</button>
+            </div>
+          </div>
+          <div class="pass-auto-note">${ICONS.check} Usata automaticamente alla connessione — non dovrai digitarla.</div>
+        ` : '<div class="detail-sub mt-sm">Questa chiave non ha una passphrase.</div>'}
       </div>
 
       ${entry.notes ? `
@@ -615,9 +625,15 @@
       await window.API.clipboard.copy(ex.privateKey || '');
       window.Toast.info('Chiave copiata (auto-clear 30s)');
     };
+    const passVal = detail.querySelector('#passVal');
+    const tp = detail.querySelector('#togglePass');
+    if (tp) tp.onclick = () => {
+      const v = passVal.dataset.visible === '1';
+      passVal.dataset.visible = v ? '0' : '1';
+      passVal.textContent = v ? '••••••••' : (ex.passphrase || '');
+    };
     const cp = detail.querySelector('#copyPass');
-    if (cp) cp.onclick = async (ev) => {
-      ev.preventDefault();
+    if (cp) cp.onclick = async () => {
       await window.API.clipboard.copy(ex.passphrase || '');
       window.Toast.info('Passphrase copiata (auto-clear 30s)');
     };

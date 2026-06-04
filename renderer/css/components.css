@@ -1080,6 +1080,19 @@ input[type="range"]::-webkit-slider-thumb:hover {
   color: var(--success);
 }
 .entry-favicon.ssh-fav svg { width: 20px; height: 20px; }
+.pass-auto-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--success-soft);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+  color: var(--success);
+  line-height: 1.4;
+}
+.pass-auto-note svg { width: 14px; height: 14px; flex-shrink: 0; }
 .dot-spacer { display: inline-block; width: 8px; height: 8px; }
 
 .note-content {

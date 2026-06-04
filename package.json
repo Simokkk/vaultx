@@ -1,7 +1,7 @@
 {
   "name": "vaultx",
   "productName": "VaultX",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "VaultX — Password Manager locale, sicuro, crittografia AES-256-GCM + Argon2id",
   "main": "main/main.js",
   "author": {

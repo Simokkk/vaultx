@@ -62,7 +62,19 @@ function connect(opts) {
   const keyPath = randTmp('.key');
   fs.writeFileSync(keyPath, normalizeKey(privateKey), { mode: 0o600 });
 
-  // 2. Restringi le ACL al solo utente corrente (necessario per OpenSSH su Windows)
+  // 2. Se la chiave ha una passphrase salvata, crea una copia temporanea SBLOCCATA
+  //    così `ssh` non la richiede al prompt (OpenSSH non accetta la passphrase da CLI).
+  const passphrase = opts.passphrase != null ? String(opts.passphrase) : '';
+  if (passphrase.length > 0) {
+    try {
+      execFileSync('ssh-keygen', ['-p', '-f', keyPath, '-P', passphrase, '-N', '', '-q'], { stdio: 'ignore' });
+    } catch (_e) {
+      try { fs.unlinkSync(keyPath); } catch (_err) { /* */ }
+      throw new Error('Passphrase della chiave errata (o chiave non valida).');
+    }
+  }
+
+  // 3. Restringi le ACL al solo utente corrente (necessario per OpenSSH su Windows)
   try {
     execFileSync('icacls', [keyPath, '/inheritance:r'], { stdio: 'ignore' });
     const who = process.env.USERNAME || process.env.USER;

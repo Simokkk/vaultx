@@ -91,6 +91,7 @@ function registerVaultIpc(ipcMain) {
       port: extra.port,
       username: entry.username,
       privateKey: extra.privateKey,
+      passphrase: extra.passphrase,
       label: entry.title
     });
     VaultService.touchEntry(entryId);
