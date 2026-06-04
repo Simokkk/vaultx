@@ -37,6 +37,7 @@
       case 'unlock':    page = window.PageUnlock;    break;
       case 'vault':     page = window.PageVault;     break;
       case 'generator': page = window.PageGenerator; break;
+      case 'health':    page = window.PageHealth;    break;
       case 'settings':  page = window.PageSettings;  break;
       default:          page = window.PageUnlock;
     }

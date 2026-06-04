@@ -87,7 +87,22 @@ function init(dbPath) {
   db.pragma('foreign_keys = ON');
   db.pragma('temp_store = MEMORY');
   db.exec(SCHEMA);
+  migrate(db);
   return db;
+}
+
+/**
+ * Migrazioni schema additive e idempotenti.
+ * Non rimuove mai colonne/dati: aggiunge solo ciò che manca.
+ * @param {import('better-sqlite3').Database} database
+ */
+function migrate(database) {
+  // v1.3: soft-delete (cestino) — colonna deleted_at su entries
+  const cols = database.prepare(`PRAGMA table_info(entries)`).all();
+  if (!cols.some((c) => c.name === 'deleted_at')) {
+    database.exec(`ALTER TABLE entries ADD COLUMN deleted_at TEXT`);
+  }
+  database.exec(`CREATE INDEX IF NOT EXISTS idx_entries_deleted ON entries(deleted_at)`);
 }
 
 /** @returns {import('better-sqlite3').Database} */

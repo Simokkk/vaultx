@@ -19,13 +19,16 @@
     close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
     eye: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s4-8 10-8 10 8 10 8-4 8-10 8-10-8-10-8Z"/><circle cx="12" cy="12" r="3"/></svg>',
     external: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>',
-    zap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>'
+    zap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
+    restore: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>',
+    activity: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>'
   };
 
   let pageState = {
     filter: { special: 'all', categoryId: null, favorite: false, search: '', sort: 'recent' },
     entries: [],
     categories: [],
+    trashCount: 0,
     selectedId: null,
     totpTimer: null,
     autotypeHandler: null
@@ -36,7 +39,11 @@
   }
 
   async function reloadEntries() {
-    pageState.entries = await window.API.vault.list(pageState.filter);
+    if (pageState.filter.special === 'trash') {
+      pageState.entries = await window.API.vault.trash.list();
+    } else {
+      pageState.entries = await window.API.vault.list(pageState.filter);
+    }
     renderEntries();
   }
 
@@ -59,6 +66,10 @@
       <div class="nav-item ${pageState.filter.special === 'old' ? 'active' : ''}" data-f="old">
         ${ICONS.key}<span>Password vecchie</span>
       </div>
+      <div class="nav-item ${pageState.filter.special === 'trash' ? 'active' : ''}" data-f="trash">
+        ${ICONS.trash}<span>Cestino</span>
+        ${pageState.trashCount ? `<span class="count">${pageState.trashCount}</span>` : ''}
+      </div>
 
       <div class="nav-section-title">Categorie</div>
       <div id="catList"></div>
@@ -66,7 +77,8 @@
         ${ICONS.plus}<span>Nuova categoria</span>
       </div>
 
-      <div class="nav-section-title">Sessione</div>
+      <div class="nav-section-title">Strumenti</div>
+      <div class="nav-item" id="openHealth">${ICONS.activity}<span>Salute password</span></div>
       <div class="nav-item" id="openGenerator">${ICONS.key}<span>Generatore</span></div>
       <div class="nav-item" id="openSettings">${ICONS.cog}<span>Impostazioni</span></div>
       <div class="nav-item" id="lockNow">${ICONS.lock}<span>Blocca vault</span></div>
@@ -118,15 +130,18 @@
     sb.querySelector('#lockNow').onclick = async () => { await window.API.auth.lock(); };
     sb.querySelector('#openSettings').onclick = () => window.Router.route('settings');
     sb.querySelector('#openGenerator').onclick = () => window.Router.route('generator');
+    sb.querySelector('#openHealth').onclick = () => window.Router.route('health');
   }
 
   async function refresh(container) {
     await reloadCategories();
+    pageState.trashCount = await window.API.vault.trash.count().catch(() => 0);
     await reloadEntries();
     renderSidebar(container);
   }
 
   function renderEntries() {
+    if (pageState.filter.special === 'trash') return renderTrash();
     const pane = document.getElementById('entriesPane');
     if (!pane) return;
     const items = pageState.entries;
@@ -152,6 +167,77 @@
         };
       });
     });
+  }
+
+  function renderTrash() {
+    const pane = document.getElementById('entriesPane');
+    const content = document.getElementById('vaultContent');
+    if (!pane) return;
+    if (content) content.classList.add('no-detail');
+    pageState.selectedId = null;
+    stopTotpTimer();
+    const items = pageState.entries;
+    const containerEl = () => document.querySelector('.vault-layout').parentElement;
+
+    const header = `
+      <div class="trash-bar">
+        <div class="trash-info">${ICONS.alert}<span>Le voci nel cestino vengono eliminate definitivamente dopo 30 giorni.</span></div>
+        ${items.length ? `<button class="btn btn-danger btn-sm" id="emptyTrash">${ICONS.trash} Svuota cestino</button>` : ''}
+      </div>
+    `;
+
+    if (!items.length) {
+      pane.innerHTML = header + `
+        <div class="empty-state">
+          ${ICONS.trash}
+          <h3>Cestino vuoto</h3>
+          <p>Le voci che elimini finiscono qui e puoi ripristinarle entro 30 giorni.</p>
+        </div>
+      `;
+      return;
+    }
+
+    pane.innerHTML = header + items.map((e) => trashCardHtml(e)).join('');
+
+    const empty = pane.querySelector('#emptyTrash');
+    if (empty) empty.onclick = async () => {
+      if (!confirm('Svuotare il cestino?\n\nTutte le voci verranno eliminate DEFINITIVAMENTE e non saranno più recuperabili.')) return;
+      const r = await window.API.vault.trash.empty();
+      window.Toast.success(`Cestino svuotato (${r.deleted} voci)`);
+      await refresh(containerEl());
+    };
+
+    pane.querySelectorAll('[data-trash-id]').forEach((card) => {
+      const id = card.dataset.trashId;
+      card.querySelector('[data-restore]').onclick = async () => {
+        await window.API.vault.trash.restore(id);
+        window.Toast.success('Voce ripristinata');
+        await refresh(containerEl());
+      };
+      card.querySelector('[data-destroy]').onclick = async () => {
+        if (!confirm('Eliminare DEFINITIVAMENTE questa voce?\n\nNon sarà più recuperabile.')) return;
+        await window.API.vault.trash.delete(id);
+        window.Toast.success('Voce eliminata definitivamente');
+        await refresh(containerEl());
+      };
+    });
+  }
+
+  function trashCardHtml(e) {
+    const initial = (e.title || '?').charAt(0).toUpperCase();
+    return `
+      <div class="entry-card trash-card" data-trash-id="${e.id}">
+        <div class="entry-favicon">${initial}</div>
+        <div class="entry-meta">
+          <div class="entry-title">${escapeHtml(e.title)}</div>
+          <div class="entry-sub">${escapeHtml(e.username || '—')} · <span class="trash-days">${e.daysLeft} giorni rimasti</span></div>
+        </div>
+        <div class="entry-actions always-visible">
+          <button class="btn btn-sm" data-restore title="Ripristina">${ICONS.restore} Ripristina</button>
+          <button class="btn btn-icon btn-ghost btn-sm" data-destroy title="Elimina definitivamente">${ICONS.trash}</button>
+        </div>
+      </div>
+    `;
   }
 
   function entryCardHtml(e) {
@@ -388,11 +474,11 @@
       selectEntry(id);
     };
     detail.querySelector('#delBtn').onclick = async () => {
-      if (!confirm('Eliminare definitivamente questa voce?')) return;
+      if (!confirm('Spostare questa voce nel cestino?\n\nPotrai ripristinarla entro 30 giorni dalla sezione Cestino.')) return;
       await window.API.vault.delete(entry.id);
       closeDetail();
-      await reloadEntries();
-      window.Toast.success('Voce eliminata');
+      await refresh(document.querySelector('.vault-layout').parentElement);
+      window.Toast.success('Spostata nel cestino');
     };
     detail.querySelector('#favBtn').onclick = async () => {
       await window.API.vault.favorite(entry.id, !entry.favorite);
@@ -570,7 +656,7 @@
     try { return new Date(iso).toLocaleString('it-IT'); } catch (_e) { return iso; }
   }
 
-  async function mount(container, { navigate }) {
+  async function mount(container, { navigate, params } = {}) {
     container.innerHTML = `
       <div class="vault-layout">
         <aside class="vault-sidebar"></aside>
@@ -628,6 +714,16 @@
     window.addEventListener('vaultx:autotype', pageState.autotypeHandler);
 
     await refresh(container);
+
+    // Selezione iniziale (es. arrivando dalla dashboard salute)
+    if (params && params.selectId) {
+      if (pageState.filter.special === 'trash') {
+        pageState.filter.special = 'all';
+        await reloadEntries();
+        renderSidebar(container);
+      }
+      await selectEntry(params.selectId);
+    }
 
     return {
       destroy() {

@@ -95,6 +95,14 @@ contextBridge.exposeInMainWorld('vaultx', {
     history: (entryId) => invoke('vault:history', entryId),
     touch: (id) => invoke('vault:touch', id),
     stats: () => invoke('vault:stats'),
+    health: () => invoke('vault:health'),
+    trash: {
+      list: () => invoke('vault:trash:list'),
+      count: () => invoke('vault:trash:count'),
+      restore: (id) => invoke('vault:trash:restore', id),
+      delete: (id) => invoke('vault:trash:delete', id),
+      empty: () => invoke('vault:trash:empty')
+    },
     categories: {
       list: () => invoke('vault:categories:list'),
       create: (data) => invoke('vault:categories:create', data),

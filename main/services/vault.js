@@ -311,10 +311,92 @@ function updateEntry(id, data) {
   tx();
 }
 
-/** @param {string} id */
+/** Numero di giorni di permanenza nel cestino prima dell'eliminazione automatica. */
+const TRASH_RETENTION_DAYS = 30;
+
+/**
+ * Soft-delete: sposta la voce nel cestino (non la elimina davvero).
+ * @param {string} id
+ */
 function deleteEntry(id) {
   requireKey();
+  Database.get()
+    .prepare(`UPDATE entries SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`)
+    .run(nowIso(), id);
+}
+
+/**
+ * Ripristina una voce dal cestino.
+ * @param {string} id
+ */
+function restoreEntry(id) {
+  requireKey();
+  Database.get()
+    .prepare(`UPDATE entries SET deleted_at = NULL, updated_at = ? WHERE id = ?`)
+    .run(nowIso(), id);
+}
+
+/**
+ * Elimina DEFINITIVAMENTE una voce dal cestino.
+ * @param {string} id
+ */
+function permanentDeleteEntry(id) {
+  requireKey();
   Database.get().prepare(`DELETE FROM entries WHERE id = ?`).run(id);
+}
+
+/** Svuota completamente il cestino (eliminazione definitiva). @returns {number} voci eliminate */
+function emptyTrash() {
+  requireKey();
+  const info = Database.get()
+    .prepare(`DELETE FROM entries WHERE deleted_at IS NOT NULL`)
+    .run();
+  return info.changes || 0;
+}
+
+/** Elimina automaticamente le voci nel cestino da oltre TRASH_RETENTION_DAYS giorni. */
+function purgeExpiredTrash() {
+  try {
+    const cutoff = new Date(Date.now() - TRASH_RETENTION_DAYS * 24 * 3600 * 1000).toISOString();
+    Database.get()
+      .prepare(`DELETE FROM entries WHERE deleted_at IS NOT NULL AND deleted_at < ?`)
+      .run(cutoff);
+  } catch (_e) { /* swallow */ }
+}
+
+/**
+ * Elenca le voci nel cestino (decifrate), con giorni rimanenti prima dell'eliminazione.
+ * @returns {object[]}
+ */
+function listTrash() {
+  const key = requireKey();
+  purgeExpiredTrash();
+  const rows = Database.get()
+    .prepare(`SELECT * FROM entries WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC`)
+    .all();
+  return rows.map((r) => {
+    const item = decryptRow(r, key);
+    const deletedMs = new Date(r.deleted_at).getTime();
+    const expireMs = deletedMs + TRASH_RETENTION_DAYS * 24 * 3600 * 1000;
+    item.deletedAt = r.deleted_at;
+    item.daysLeft = Math.max(0, Math.ceil((expireMs - Date.now()) / (24 * 3600 * 1000)));
+    item.strength = require('./generator').strengthScore(item.password).score;
+    return item;
+  });
+}
+
+/** @returns {number} numero voci nel cestino */
+function trashCount() {
+  try {
+    requireKey();
+    purgeExpiredTrash();
+    const row = Database.get()
+      .prepare(`SELECT COUNT(*) AS n FROM entries WHERE deleted_at IS NOT NULL`)
+      .get();
+    return row ? row.n : 0;
+  } catch (_e) {
+    return 0;
+  }
 }
 
 /** @param {string} id @returns {string} nuovo id */
@@ -381,7 +463,8 @@ function decryptRow(row, key) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     lastUsed: row.last_used,
-    passwordChangedAt: row.password_changed_at
+    passwordChangedAt: row.password_changed_at,
+    deletedAt: row.deleted_at || null
   };
 }
 
@@ -398,7 +481,7 @@ function decryptRow(row, key) {
 function listEntries(filter = {}) {
   const key = requireKey();
   let sql = `SELECT * FROM entries`;
-  const where = [];
+  const where = ['deleted_at IS NULL'];
   const params = [];
   if (filter.categoryId) {
     where.push(`category_id = ?`);
@@ -407,7 +490,7 @@ function listEntries(filter = {}) {
   if (filter.favorite) {
     where.push(`favorite = 1`);
   }
-  if (where.length) sql += ' WHERE ' + where.join(' AND ');
+  sql += ' WHERE ' + where.join(' AND ');
   sql += ' ORDER BY updated_at DESC';
 
   const rows = Database.get().prepare(sql).all(...params);
@@ -543,6 +626,53 @@ function stats() {
   return { total, averageStrength: avg, weak, old, duplicates };
 }
 
+/**
+ * Report dettagliato salute password per la dashboard.
+ * NON espone mai le password in chiaro: per i duplicati raggruppa solo i metadati.
+ * @returns {object}
+ */
+function healthReport() {
+  const key = requireKey();
+  const items = listEntries();
+  const total = items.length;
+  const avg = total === 0 ? 0 : Math.round(items.reduce((s, i) => s + i.strength, 0) / total);
+
+  const weak = items
+    .filter((i) => i.strength < 50)
+    .sort((a, b) => a.strength - b.strength)
+    .map((i) => ({ id: i.id, title: i.title, username: i.username, strength: i.strength }));
+
+  const ninety = Date.now() - 90 * 24 * 3600 * 1000;
+  const old = items
+    .filter((i) => !i.passwordChangedAt || new Date(i.passwordChangedAt).getTime() < ninety)
+    .sort((a, b) => new Date(a.passwordChangedAt || 0) - new Date(b.passwordChangedAt || 0))
+    .map((i) => ({
+      id: i.id,
+      title: i.title,
+      username: i.username,
+      passwordChangedAt: i.passwordChangedAt
+    }));
+
+  // Raggruppa per password identica (senza mai esporre il valore)
+  const groups = {};
+  for (const i of items) {
+    if (!i.password) continue;
+    const sig = crypto.createHash('sha256').update(i.password).digest('hex');
+    (groups[sig] = groups[sig] || []).push({
+      id: i.id,
+      title: i.title,
+      username: i.username,
+      strength: i.strength
+    });
+  }
+  const reused = Object.values(groups)
+    .filter((g) => g.length > 1)
+    .map((g) => ({ count: g.length, entries: g }))
+    .sort((a, b) => b.count - a.count);
+
+  return { total, averageStrength: avg, weak, old, reused };
+}
+
 /** @returns {string|null} */
 function getLastAccess() {
   try {
@@ -560,7 +690,7 @@ function exportPlain() {
   const key = requireKey();
   const db = Database.get();
   const entries = db
-    .prepare(`SELECT * FROM entries`)
+    .prepare(`SELECT * FROM entries WHERE deleted_at IS NULL`)
     .all()
     .map((r) => decryptRow(r, key));
   const categories = db.prepare(`SELECT * FROM categories`).all();
@@ -667,6 +797,12 @@ module.exports = {
   createEntry,
   updateEntry,
   deleteEntry,
+  restoreEntry,
+  permanentDeleteEntry,
+  emptyTrash,
+  listTrash,
+  trashCount,
+  purgeExpiredTrash,
   duplicateEntry,
   setFavorite,
   touchEntry,
@@ -678,6 +814,7 @@ module.exports = {
   updateCategory,
   deleteCategory,
   stats,
+  healthReport,
   getLastAccess,
   exportPlain,
   importPlain,

@@ -44,6 +44,23 @@ function registerVaultIpc(ipcMain) {
     return { ok: true };
   }));
   ipcMain.handle('vault:stats', guard(() => VaultService.stats()));
+  ipcMain.handle('vault:health', guard(() => VaultService.healthReport()));
+
+  // Cestino (soft-delete)
+  ipcMain.handle('vault:trash:list', guard(() => VaultService.listTrash()));
+  ipcMain.handle('vault:trash:count', guard(() => VaultService.trashCount()));
+  ipcMain.handle('vault:trash:restore', guard((_e, id) => {
+    VaultService.restoreEntry(id);
+    return { ok: true };
+  }));
+  ipcMain.handle('vault:trash:delete', guard((_e, id) => {
+    VaultService.permanentDeleteEntry(id);
+    return { ok: true };
+  }));
+  ipcMain.handle('vault:trash:empty', guard(() => {
+    const n = VaultService.emptyTrash();
+    return { ok: true, deleted: n };
+  }));
 
   ipcMain.handle('vault:categories:list', guard(() => VaultService.listCategories()));
   ipcMain.handle('vault:categories:create', guard((_e, data) => VaultService.createCategory(data)));

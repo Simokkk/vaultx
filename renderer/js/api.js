@@ -52,6 +52,14 @@
       history: wrap(vaultx.vault.history),
       touch: wrap(vaultx.vault.touch),
       stats: wrap(vaultx.vault.stats),
+      health: wrap(vaultx.vault.health),
+      trash: {
+        list: wrap(vaultx.vault.trash.list),
+        count: wrap(vaultx.vault.trash.count),
+        restore: wrap(vaultx.vault.trash.restore),
+        delete: wrap(vaultx.vault.trash.delete),
+        empty: wrap(vaultx.vault.trash.empty)
+      },
       categories: {
         list: wrap(vaultx.vault.categories.list),
         create: wrap(vaultx.vault.categories.create),
