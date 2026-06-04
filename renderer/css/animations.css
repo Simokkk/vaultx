@@ -1,0 +1,72 @@
+/* =========================================================
+   VaultX — Animations
+   ========================================================= */
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes popIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slideOutRight {
+  to { opacity: 0; transform: translateX(24px); }
+}
+
+@keyframes slideInUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  15%, 55% { transform: translateX(-8px); }
+  30%, 70% { transform: translateX(8px); }
+  85% { transform: translateX(-4px); }
+}
+
+@keyframes pulseTotp {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 0 0 var(--accent-soft); }
+  50% { box-shadow: 0 0 0 6px transparent; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.animate-shake { animation: shake 520ms var(--ease-in-out); }
+.animate-fade-in { animation: fadeIn var(--dur-med) var(--ease); }
+.animate-slide-up { animation: slideInUp var(--dur-med) var(--ease); }
+.animate-pulse { animation: pulseTotp 1.5s ease-in-out infinite; }
+.animate-spin { animation: spin 0.9s linear infinite; }
+
+/* Page transition */
+.page-enter {
+  animation: slideInUp var(--dur-med) var(--ease);
+}
+
+/* Reduce motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

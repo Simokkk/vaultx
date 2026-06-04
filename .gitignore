@@ -1,0 +1,20 @@
+node_modules/
+dist/
+out/
+build/Release/
+*.log
+.env
+.DS_Store
+Thumbs.db
+
+# Installer locale (viene pubblicato su GitHub Releases, non nel repo)
+*.exe
+*.exe.blockmap
+builder-debug.yml
+
+# Backup vault e dati utente (non devono MAI finire nel repo pubblico)
+*.vaultx
+*.db
+*.db-shm
+*.db-wal
+VaultX-Backup-*/
