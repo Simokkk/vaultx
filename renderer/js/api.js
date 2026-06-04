@@ -88,6 +88,11 @@
       available: wrap(vaultx.autotype.available)
     },
 
+    ssh: {
+      available: wrap(vaultx.ssh.available),
+      connect: wrap(vaultx.ssh.connect)
+    },
+
     settings: {
       get: wrap(vaultx.settings.get),
       set: wrap(vaultx.settings.set),

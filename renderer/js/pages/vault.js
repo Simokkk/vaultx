@@ -23,7 +23,8 @@
     restore: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>',
     activity: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
     note: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="14" y2="17"/></svg>',
-    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+    terminal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>'
   };
 
   let pageState = {
@@ -342,30 +343,40 @@
 
   function entryCardHtml(e) {
     const isNote = e.type === 'note';
+    const isSsh = e.type === 'ssh';
     const initial = (e.title || '?').charAt(0).toUpperCase();
     const badges = [];
     if (e.favorite) badges.push('<span class="chip chip-fav">★</span>');
     if (isNote) badges.push('<span class="chip">nota</span>');
+    else if (isSsh) badges.push('<span class="chip">ssh</span>');
     else if (e.strength != null && e.strength < 50) badges.push('<span class="chip chip-weak">debole</span>');
 
     const checkbox = pageState.selectMode
       ? `<label class="sel-check"><input type="checkbox" data-sel="${e.id}" ${pageState.selected.has(e.id) ? 'checked' : ''}></label>`
       : '';
-    const favicon = isNote
-      ? `<div class="entry-favicon note-fav">${ICONS.note}</div>`
-      : `<div class="entry-favicon">${initial}</div>`;
-    const sub = isNote
-      ? (escapeHtml((e.notes || '').split('\n')[0].slice(0, 60)) || 'Nota sicura')
-      : escapeHtml(e.username || '—');
-    const dot = (!isNote && e.strength != null)
-      ? `<div class="strength-dot" style="color:${strengthColor(e.strength)}; background:${strengthColor(e.strength)}" title="Forza ${e.strength}/100"></div>`
-      : '<span class="dot-spacer"></span>';
-    const actions = isNote
-      ? `<button class="btn btn-icon btn-ghost btn-sm" data-action="copy-content" title="Copia contenuto">${ICONS.copy}</button>
-         <button class="btn btn-icon btn-ghost btn-sm" data-action="edit" title="Modifica">${ICONS.edit}</button>`
-      : `<button class="btn btn-icon btn-ghost btn-sm" data-action="copy-user" title="Copia username">${ICONS.copy}</button>
+
+    let favicon, sub, actions;
+    if (isNote) {
+      favicon = `<div class="entry-favicon note-fav">${ICONS.note}</div>`;
+      sub = (escapeHtml((e.notes || '').split('\n')[0].slice(0, 60)) || 'Nota sicura');
+      actions = `<button class="btn btn-icon btn-ghost btn-sm" data-action="copy-content" title="Copia contenuto">${ICONS.copy}</button>
+         <button class="btn btn-icon btn-ghost btn-sm" data-action="edit" title="Modifica">${ICONS.edit}</button>`;
+    } else if (isSsh) {
+      const host = (e.extra && e.extra.host) || '';
+      favicon = `<div class="entry-favicon ssh-fav">${ICONS.terminal}</div>`;
+      sub = escapeHtml(`${e.username || '?'}@${host}`);
+      actions = `<button class="btn btn-icon btn-ghost btn-sm" data-action="ssh-connect" title="Connetti">${ICONS.terminal}</button>
+         <button class="btn btn-icon btn-ghost btn-sm" data-action="edit" title="Modifica">${ICONS.edit}</button>`;
+    } else {
+      favicon = `<div class="entry-favicon">${initial}</div>`;
+      sub = escapeHtml(e.username || '—');
+      actions = `<button class="btn btn-icon btn-ghost btn-sm" data-action="copy-user" title="Copia username">${ICONS.copy}</button>
          <button class="btn btn-icon btn-ghost btn-sm" data-action="copy-pwd" title="Copia password">${ICONS.key}</button>
          <button class="btn btn-icon btn-ghost btn-sm" data-action="edit" title="Modifica">${ICONS.edit}</button>`;
+    }
+    const dot = (!isNote && !isSsh && e.strength != null)
+      ? `<div class="strength-dot" style="color:${strengthColor(e.strength)}; background:${strengthColor(e.strength)}" title="Forza ${e.strength}/100"></div>`
+      : '<span class="dot-spacer"></span>';
 
     return `
       <div class="entry-card ${pageState.selectMode ? 'sel-mode' : ''} ${pageState.selectedId === e.id ? 'selected' : ''} ${pageState.selected.has(e.id) ? 'multi-sel' : ''}" data-id="${e.id}">
@@ -401,6 +412,8 @@
     } else if (action === 'copy-content') {
       await window.API.clipboard.copy(entry.notes || '');
       window.Toast.info('Contenuto copiato (auto-clear 30s)');
+    } else if (action === 'ssh-connect') {
+      await sshConnect(entry.id);
     } else if (action === 'edit') {
       window.PageEntry.openEditor({
         entry,
@@ -507,9 +520,135 @@
     };
   }
 
+  async function sshConnect(id) {
+    const avail = await window.API.ssh.available();
+    if (!avail) {
+      window.Toast.error('OpenSSH non trovato. Abilitalo da Impostazioni Windows → App → Funzionalità facoltative → "OpenSSH Client".');
+      return;
+    }
+    try {
+      await window.API.ssh.connect(id);
+      window.Toast.success('Apertura terminale SSH…');
+    } catch (_e) { /* toast mostrato da API */ }
+  }
+
+  function renderSshDetail(detail, entry) {
+    const cat = pageState.categories.find((c) => c.id === entry.categoryId);
+    const ex = entry.extra || {};
+    detail.innerHTML = `
+      <div class="detail-header">
+        <div class="entry-favicon ssh-fav" style="width:44px;height:44px">${ICONS.terminal}</div>
+        <div style="flex:1; min-width:0;">
+          <div class="detail-title truncate">${escapeHtml(entry.title)}</div>
+          <div class="detail-sub">Connessione SSH${cat ? ' · ' + escapeHtml(cat.nome) : ''}${entry.favorite ? ' · <span style="color:var(--warning)">★ Preferito</span>' : ''}</div>
+        </div>
+        <button class="btn btn-icon btn-ghost" id="closeDetail" title="Chiudi">${ICONS.close}</button>
+      </div>
+
+      <div class="detail-section">
+        <button class="btn btn-primary btn-block" id="sshConnectBtn">${ICONS.terminal} Connetti</button>
+        <div class="detail-sub mt-sm" style="text-align:center">Apre un terminale autenticato con la chiave</div>
+      </div>
+
+      <div class="detail-section">
+        <div class="detail-label">Host</div>
+        <div class="detail-value">
+          <span class="val text-mono">${escapeHtml(ex.host || '—')}:${escapeHtml(String(ex.port || 22))}</span>
+          <div class="detail-actions"><button class="btn btn-icon btn-ghost" id="copyHost" title="Copia">${ICONS.copy}</button></div>
+        </div>
+        <div class="detail-label" style="margin-top:var(--sp-4)">Username SSH</div>
+        <div class="detail-value">
+          <span class="val text-mono">${escapeHtml(entry.username || '—')}</span>
+          <div class="detail-actions"><button class="btn btn-icon btn-ghost" id="copyUser" title="Copia">${ICONS.copy}</button></div>
+        </div>
+        <div class="detail-label" style="margin-top:var(--sp-4)">Chiave privata</div>
+        <div class="note-content" id="keyVal" data-visible="0">•••••••• (clicca "Mostra" per rivelare)</div>
+        <div class="flex gap-sm mt-sm">
+          <button class="btn btn-sm grow" id="revealKey">${ICONS.eye} Mostra / Nascondi</button>
+          <button class="btn btn-sm grow" id="copyKey">${ICONS.copy} Copia</button>
+        </div>
+        ${ex.passphrase ? `<div class="detail-sub mt-sm">🔑 Passphrase salvata — <a href="#" id="copyPass">copia negli appunti</a></div>` : ''}
+      </div>
+
+      ${entry.notes ? `
+        <div class="detail-section">
+          <div class="detail-label">Note</div>
+          <div class="detail-value" style="align-items:flex-start; min-height:auto; padding:var(--sp-3)">
+            <span class="val" style="white-space:pre-wrap">${escapeHtml(entry.notes)}</span>
+          </div>
+        </div>` : ''}
+
+      <div class="detail-section">
+        <div class="flex gap-sm wrap">
+          <button class="btn grow" id="editBtn">${ICONS.edit} Modifica</button>
+          <button class="btn grow" id="favBtn">${entry.favorite ? ICONS.starFill + ' Rimuovi' : ICONS.star + ' Preferito'}</button>
+        </div>
+        <div class="flex gap-sm wrap mt-sm">
+          <button class="btn grow" id="dupBtn">${ICONS.copy} Duplica</button>
+          <button class="btn btn-danger grow" id="delBtn">${ICONS.trash} Elimina</button>
+        </div>
+        <div class="detail-sub mt-md">
+          Creato: ${formatDate(entry.createdAt)}<br>
+          Modificato: ${formatDate(entry.updatedAt)}<br>
+          Ultimo utilizzo: ${formatDate(entry.lastUsed)}
+        </div>
+      </div>
+    `;
+    detail.querySelector('#closeDetail').onclick = closeDetail;
+    detail.querySelector('#sshConnectBtn').onclick = () => sshConnect(entry.id);
+    detail.querySelector('#copyHost').onclick = async () => {
+      await window.API.clipboard.copy(ex.host || '', 0);
+      window.Toast.info('Host copiato');
+    };
+    detail.querySelector('#copyUser').onclick = async () => {
+      await window.API.clipboard.copy(entry.username || '', 0);
+      window.Toast.info('Username copiato');
+    };
+    const keyVal = detail.querySelector('#keyVal');
+    detail.querySelector('#revealKey').onclick = () => {
+      const v = keyVal.dataset.visible === '1';
+      keyVal.dataset.visible = v ? '0' : '1';
+      keyVal.textContent = v ? '•••••••• (clicca "Mostra" per rivelare)' : (ex.privateKey || '(nessuna)');
+      keyVal.classList.toggle('revealed', !v);
+    };
+    detail.querySelector('#copyKey').onclick = async () => {
+      await window.API.clipboard.copy(ex.privateKey || '');
+      window.Toast.info('Chiave copiata (auto-clear 30s)');
+    };
+    const cp = detail.querySelector('#copyPass');
+    if (cp) cp.onclick = async (ev) => {
+      ev.preventDefault();
+      await window.API.clipboard.copy(ex.passphrase || '');
+      window.Toast.info('Passphrase copiata (auto-clear 30s)');
+    };
+    detail.querySelector('#editBtn').onclick = () => {
+      window.PageEntry.openEditor({
+        entry, categories: pageState.categories,
+        onSaved: async () => { await reloadEntries(); selectEntry(entry.id); }
+      });
+    };
+    detail.querySelector('#dupBtn').onclick = async () => {
+      const id = await window.API.vault.duplicate(entry.id);
+      window.Toast.success('Voce duplicata');
+      await reloadEntries(); selectEntry(id);
+    };
+    detail.querySelector('#delBtn').onclick = async () => {
+      if (!confirm('Spostare questa voce nel cestino?\n\nPotrai ripristinarla entro 30 giorni dalla sezione Cestino.')) return;
+      await window.API.vault.delete(entry.id);
+      closeDetail();
+      await refresh(document.querySelector('.vault-layout').parentElement);
+      window.Toast.success('Spostata nel cestino');
+    };
+    detail.querySelector('#favBtn').onclick = async () => {
+      await window.API.vault.favorite(entry.id, !entry.favorite);
+      await reloadEntries(); selectEntry(entry.id);
+    };
+  }
+
   function renderDetail(detail, entry) {
     detail.classList.add('open');
     if (entry.type === 'note') return renderNoteDetail(detail, entry);
+    if (entry.type === 'ssh') return renderSshDetail(detail, entry);
     const cat = pageState.categories.find((c) => c.id === entry.categoryId);
     detail.innerHTML = `
       <div class="detail-header">

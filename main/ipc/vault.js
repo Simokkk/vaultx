@@ -12,6 +12,7 @@ const LockService = require('../services/lock');
 const TOTP = require('../services/totp');
 const CryptoSvc = require('../services/crypto');
 const Importer = require('../services/importer');
+const SSH = require('../services/ssh');
 
 /** Esegue un handler dentro un reset del timer di auto-lock. */
 function guard(fn) {
@@ -77,6 +78,23 @@ function registerVaultIpc(ipcMain) {
     const entry = VaultService.getEntry(entryId);
     if (!entry || !entry.totpSecret) return null;
     return TOTP.compute(entry.totpSecret);
+  }));
+
+  // Connessioni SSH (autenticazione a chiave)
+  ipcMain.handle('ssh:available', () => SSH.isAvailable());
+  ipcMain.handle('ssh:connect', guard((_e, entryId) => {
+    const entry = VaultService.getEntry(entryId);
+    if (!entry || entry.type !== 'ssh') throw new Error('Voce SSH non trovata.');
+    const extra = entry.extra || {};
+    const res = SSH.connect({
+      host: extra.host,
+      port: extra.port,
+      username: entry.username,
+      privateKey: extra.privateKey,
+      label: entry.title
+    });
+    VaultService.touchEntry(entryId);
+    return res;
   }));
 
   // EXPORT .vaultx

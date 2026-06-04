@@ -1,6 +1,6 @@
 'use strict';
 
-/** Editor voce (modal) — supporta tipi: login, nota sicura. */
+/** Editor voce (modal) — supporta tipi: login, nota sicura, SSH. */
 (() => {
   const ICONS = {
     eye: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s4-8 10-8 10 8 10 8-4 8-10 8-10-8-10-8Z"/><circle cx="12" cy="12" r="3"/></svg>',
@@ -19,6 +19,7 @@
   function openEditor({ entry = null, categories = [], onSaved, defaultType = 'login' }) {
     const isEdit = !!entry;
     let type = isEdit ? (entry.type || 'login') : (defaultType || 'login');
+    const ex = (entry && entry.extra) || {};
     const root = document.createElement('div');
     root.className = 'modal-backdrop';
     root.innerHTML = `
@@ -32,11 +33,12 @@
           <div class="mode-switcher mb-md" id="typeSwitch">
             <button class="active" data-type="login">Login</button>
             <button data-type="note">Nota sicura</button>
+            <button data-type="ssh">SSH</button>
           </div>`}
 
           <div class="field">
             <label>Titolo *</label>
-            <input class="input" id="f_title" value="${escapeHtml(entry?.title || '')}" placeholder="Es: Gmail, Twitter, Banca XYZ" />
+            <input class="input" id="f_title" value="${escapeHtml(entry?.title || '')}" placeholder="Es: Gmail, Server di produzione…" />
           </div>
           <div class="field">
             <label>Categoria</label>
@@ -70,6 +72,32 @@
               <label>TOTP secret (base32)</label>
               <input class="input input-mono" id="f_totp" value="${escapeHtml(entry?.totpSecret || '')}" placeholder="JBSWY3DPEHPK3PXP" />
               <span class="hint">Lascia vuoto se non usi la 2FA. Accetta spazi — verranno rimossi.</span>
+            </div>
+          </div>
+
+          <div id="sshFields">
+            <div class="flex gap-sm">
+              <div class="field grow">
+                <label>Host *</label>
+                <input class="input input-mono" id="f_host" value="${escapeHtml(ex.host || '')}" placeholder="192.168.1.10 o server.esempio.com" />
+              </div>
+              <div class="field" style="width:110px">
+                <label>Porta</label>
+                <input class="input input-mono" id="f_port" value="${escapeHtml(ex.port || 22)}" placeholder="22" />
+              </div>
+            </div>
+            <div class="field">
+              <label>Username SSH *</label>
+              <input class="input input-mono" id="f_sshuser" value="${escapeHtml(entry?.username || '')}" placeholder="root, ubuntu, admin…" />
+            </div>
+            <div class="field">
+              <label>Chiave privata *</label>
+              <textarea class="textarea input-mono" id="f_key" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;…&#10;-----END OPENSSH PRIVATE KEY-----" style="min-height:130px">${escapeHtml(ex.privateKey || '')}</textarea>
+              <span class="hint">La chiave viene cifrata nel vault. Usata solo al momento della connessione.</span>
+            </div>
+            <div class="field">
+              <label>Passphrase chiave (opzionale)</label>
+              <input class="input input-mono" id="f_pass" type="password" value="${escapeHtml(ex.passphrase || '')}" placeholder="Se la chiave è protetta da passphrase" />
             </div>
           </div>
 
@@ -109,7 +137,9 @@
     // Visibilità campi in base al tipo
     const applyType = () => {
       const isNote = type === 'note';
-      root.querySelector('#loginFields').style.display = isNote ? 'none' : '';
+      const isSsh = type === 'ssh';
+      root.querySelector('#loginFields').style.display = (!isNote && !isSsh) ? '' : 'none';
+      root.querySelector('#sshFields').style.display = isSsh ? '' : 'none';
       root.querySelector('#notesLabel').textContent = isNote ? 'Contenuto *' : 'Note';
       const ta = root.querySelector('#f_notes');
       ta.style.minHeight = isNote ? '170px' : '';
@@ -131,29 +161,43 @@
     root.querySelector('#save').onclick = async () => {
       const title = root.querySelector('#f_title').value.trim();
       if (!title) return window.Toast.error('Titolo richiesto');
-
+      const categoryId = root.querySelector('#f_cat').value || null;
+      const favorite = root.querySelector('#f_fav').checked;
       let data;
+
       if (type === 'note') {
         const content = root.querySelector('#f_notes').value;
         if (!content.trim()) return window.Toast.error('Contenuto richiesto');
+        data = { type: 'note', title, categoryId, notes: content, favorite };
+      } else if (type === 'ssh') {
+        const host = root.querySelector('#f_host').value.trim();
+        const sshUser = root.querySelector('#f_sshuser').value.trim();
+        const key = root.querySelector('#f_key').value.trim();
+        const port = parseInt(root.querySelector('#f_port').value, 10) || 22;
+        const passphrase = root.querySelector('#f_pass').value;
+        if (!host) return window.Toast.error('Host richiesto');
+        if (!sshUser) return window.Toast.error('Username SSH richiesto');
+        if (!key) return window.Toast.error('Chiave privata richiesta');
         data = {
-          type: 'note',
+          type: 'ssh',
           title,
-          categoryId: root.querySelector('#f_cat').value || null,
-          notes: content,
-          favorite: root.querySelector('#f_fav').checked
+          categoryId,
+          username: sshUser,
+          notes: root.querySelector('#f_notes').value,
+          favorite,
+          extra: { host, port, privateKey: key, passphrase }
         };
       } else {
         data = {
           type: 'login',
           title,
-          categoryId: root.querySelector('#f_cat').value || null,
+          categoryId,
           username: root.querySelector('#f_user').value.trim(),
           password: pwd.value,
           url: root.querySelector('#f_url').value.trim(),
           totpSecret: root.querySelector('#f_totp').value.trim().replace(/\s+/g, ''),
           notes: root.querySelector('#f_notes').value,
-          favorite: root.querySelector('#f_fav').checked
+          favorite
         };
         if (!data.password) return window.Toast.error('Password richiesta');
       }

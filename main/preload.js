@@ -136,6 +136,12 @@ contextBridge.exposeInMainWorld('vaultx', {
     available: () => invoke('autotype:available')
   },
 
+  /** Connessioni SSH */
+  ssh: {
+    available: () => invoke('ssh:available'),
+    connect: (id) => invoke('ssh:connect', id)
+  },
+
   /** Impostazioni */
   settings: {
     get: (key) => invoke('settings:get', key),
